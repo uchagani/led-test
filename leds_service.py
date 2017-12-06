@@ -5,6 +5,7 @@
 import random
 import time
 import struct
+import code
 
 import usb.core
 import usb.util
@@ -81,7 +82,7 @@ class LedsService:
 
     class State:
         """ Leds states.- """
-        none, waking_up, standby, listening, loading, notify, error = range(7)
+        none, waking_up, standby, listening, loading, notify, intent_recognized, error = range(8)
 
     def __init__(self):
         led_device = HID.find()
@@ -139,7 +140,7 @@ class ReSpeakerAnimator(object):
                                    for st in list(range(31)) + list(reversed(range(31)))]
 
         # the matrix above:
-        def value(i, j, N):
+        def value_blue(i, j, N):
             if i == j:
                 return 0
             elif i == (j + 1) % N:
@@ -151,13 +152,35 @@ class ReSpeakerAnimator(object):
             else:
                 return 255
 
+        def value_red(i, j, N):
+            if i == j:
+                return 0
+            elif i == (j + 1) % N:
+                return 0
+            elif i == (j - 1) % N:
+                return int("400000", 16)
+            elif i == (j + 2) % N or i == (j - 2) % N:
+                return int("7f0000", 16) #middle
+            else:
+                return int("FF0000", 16) #darkest
+
+        def value_green(i, j, N):
+            if i == j:
+                return 0
+            elif i == (j + 1) % N:
+                return 0
+            elif i == (j - 1) % N:
+                return int("004000", 16)
+            elif i == (j + 2) % N or i == (j - 2) % N:
+                return int("007f00", 16) #middle
+            else:
+                return int("00fe00", 16) #darkest
+
         self.animation_listening = []
         leds = range(3, 15)
         N = len(leds)
         for i in range(0, N):
-            self.animation_listening.append({leds[j]: value(i, j, N) for j in range(0, N)})
-
-        print("Listening: " + str(self.animation_listening))
+            self.animation_listening.append({leds[j]: value_green(i, j, N) for j in range(0, N)})
 
         self.animation_loading = [{value: 16 * st for value in self.led_dict.values()}
                                   for st in list(range(15)) + list(reversed(range(15)))]
@@ -168,8 +191,15 @@ class ReSpeakerAnimator(object):
             self.animation_notify.append({value: int("0000ff", 16) for value in self.led_dict.values()})
             self.animation_notify.append({value: int("000000", 16) for value in self.led_dict.values()})
 
+        print("\nNotify: " + str(self.animation_notify))
+
+        self.animation_intent_recognized = []
+        for frame in range(0, 2):
+            self.animation_intent_recognized.append({value: int("00FF00", 16) for value in self.led_dict.values()})
+            self.animation_intent_recognized.append({value: int("000000", 16) for value in self.led_dict.values()})
+
         self.animation_error = []
-        for frame in range(0, 3):
+        for frame in range(0, 2):
             self.animation_error.append(
                 {value: int("ff0000", 16) for value in self.led_dict.values()})
             self.animation_error.append(
@@ -184,25 +214,21 @@ class ReSpeakerAnimator(object):
         except Exception as e:
             print(e.message)
 
-    def write(self, address, data):
-        # print("\nAddress: " + str(address))
-        # print("\nData Before Pack: \n" + str(data))
+    def get_random_color(self):
+        hex_color = hex(random.randint(0, 16777215))[2:]
+        return int(hex_color, 16)
 
+    def write(self, address, data):
         if data > 0xFFFF:
             data = struct.pack('<I', data)
         elif data > 0xFF:
             data = struct.pack('<H', data)
 
-        # print("\nData After Pack: \n" + str(data))
-
         data = self.to_bytearray(data)
-
-        # print("\nData Byte Array: \n" + str(data))
 
         length = len(data)
         if self.hid:
-            packet = bytearray([address & 0xFF, (address >> 8) &
-                                0x7F, length & 0xFF, (length >> 8) & 0xFF]) + data
+            packet = bytearray([address & 0xFF, (address >> 8) & 0x7F, length & 0xFF, (length >> 8) & 0xFF]) + data
             packet = list(packet)
             self.hid.write(packet)
 
@@ -259,8 +285,7 @@ class ReSpeakerAnimator(object):
                     break
                 for k, v in item.items():
                     self.write(k, v)
-                time.sleep(10)
-                #time.sleep(0.01)
+                time.sleep(0.01)
         elif animation.active == LedsService.State.loading:
             for item in self.animation_loading:
                 if animation.id != id:
@@ -275,8 +300,16 @@ class ReSpeakerAnimator(object):
                 for k, v in item.items():
                     self.write(k, v)
                 time.sleep(0.1)
+        elif animation.active == LedsService.State.intent_recognized:
+            for item in self.animation_intent_recognized:
+                if animation.id != id:
+                    break
+                for k, v in item.items():
+                    self.write(k, v)
+                time.sleep(0.1)
         elif animation.active == LedsService.State.error:
             for item in self.animation_error:
+                code.interact(local=dict(globals(), **locals()))
                 if animation.id != id:
                     break
                 for k, v in item.items():
